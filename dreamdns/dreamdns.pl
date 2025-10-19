@@ -142,6 +142,10 @@ my $nic = undef;
 #  CUSTOM: my $ip = '74.125.45.100';
 my $ip = undef;
 
+my $ipv6 = undef;
+
+my $srv = undef;
+
 # Verbosity level (DEFAULT=4)
 #  5  step-by-step info
 #  4  info
@@ -211,6 +215,8 @@ Usage: $0
   --apikey <my_dns_api_key>
   [--nic <my_nic_to_watch>]
   [--ip <my_new_ip>]
+  [--ipv6 <my_new_ip>]
+  [--srv "<pri> <wt> <port> <host>"]
   [--ipurl <find_my_ip_web_service_url>]
   [--agent <my_user_agent>]
   [--interval <update_interval_secs>]
@@ -292,8 +298,11 @@ sub sendDreamhostCmd {
 }
 
 sub updateDns($) {
-  my ($new_ip) = @_;
-  logmsg("I: updating IP for $domain to $new_ip",4);
+  my ($new_ip, $rrtype) = @_;
+  if (!defined($rrtype)) {
+    $rrtype = 'A'
+  }
+  logmsg("I: updating $rrtype for $domain to $new_ip",4);
   if (defined($last_ip) && $new_ip eq $last_ip &&
       $recheck_secs + $last_check > time()) {
     logmsg("I: no dns update needed",4);
@@ -309,7 +318,7 @@ sub updateDns($) {
   }
   undef $last_ip;
   foreach(@{$response->{'data'}}) {
-    if (uc($_->{'type'}) eq 'A' && $_->{'record'} eq $domain) {
+    if (uc($_->{'type'}) eq $rrtype && $_->{'record'} eq $domain) {
       $last_ip = $_->{'value'};
       if ($last_ip eq $new_ip) {
         logmsg("I: no dns update needed",4);
@@ -326,7 +335,7 @@ sub updateDns($) {
   if (defined($last_ip)) {
     logmsg("I: removing old DreamHost dns record for $domain",5);
     $response = sendDreamhostCmd('dns-remove_record',
-      {'record' => $domain, 'type' => 'A', 'value' => $last_ip});
+      {'record' => $domain, 'type' => $rrtype, 'value' => $last_ip});
     unless ($response->{'result'} =~ /^success$/) {
       logmsg("E: ".$response->{'data'}.
         " encountered during dns-remove_record",2);
@@ -336,7 +345,7 @@ sub updateDns($) {
   
   logmsg("I: adding new DreamHost dns record for $domain",5);
   $response = sendDreamhostCmd('dns-add_record',
-    {'record' => $domain, 'type' => 'A', 'value' => $new_ip});
+    {'record' => $domain, 'type' => $rrtype, 'value' => $new_ip});
   unless ($response->{'result'} =~ /^success$/) {
     logmsg("E: ".$response->{'data'}." encountered during dns-add_record",2);
     return 1;
@@ -431,8 +440,15 @@ sub getNICIP {
 
 sub runUpdateOnce {
   my $new_ip;
+  my $rrtype = 'A';
   if (defined($ip)) {
     $new_ip = $ip;
+  } elsif (defined($ipv6)) {
+    $new_ip = $ipv6;
+    $rrtype = 'AAAA';
+  } elsif (defined($srv)) {
+    $new_ip = $srv;
+    $rrtype = 'SRV';
   } elsif (defined($nic)) {
     $new_ip = getNICIP;
   } else {
@@ -442,7 +458,7 @@ sub runUpdateOnce {
   return $rtrn_val if ($time_to_quit);
 
   if (defined($new_ip)) {
-    return updateDns $new_ip;
+    return updateDns($new_ip, $rrtype);
   } else {
     logmsg("E: no valid IP to attempt update",2);
     return 1;
@@ -476,6 +492,8 @@ for(my $i = 0; $i <= $#ARGV; $i++) {
     case '--daemon' {$daemonize = 1;}
     case '--once' {$once = 1;}
     case '--ip' {$ip = $ARGV[++$i];}
+    case '--ipv6' {$ipv6 = $ARGV[++$i];}
+    case '--srv' {$srv = $ARGV[++$i];}
     case '--apikey' {$apikey = $ARGV[++$i];}
     case '--verbosity' {$verbosity = $ARGV[++$i];}
     case '--interval' {$interval = $ARGV[++$i];}
